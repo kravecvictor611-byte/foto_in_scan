@@ -301,7 +301,7 @@ public final class MainActivity extends Activity {
             TextView handle = text("⋮⋮", 22, blue);
             handle.setGravity(Gravity.CENTER);
             handle.setContentDescription("Перетащить страницу " + (i + 1));
-            row.addView(handle, new LinearLayout.LayoutParams(dp(32), dp(48)));
+            row.addView(handle, new LinearLayout.LayoutParams(dp(32), dp(72)));
             handle.setOnTouchListener((v, event) -> {
                 if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN && !busy) {
                     return startPageDrag(row, page, index);
@@ -341,6 +341,8 @@ public final class MainActivity extends Activity {
                 return true;
             case DragEvent.ACTION_DRAG_ENTERED:
                 row.setBackground(background(0xFFE8EEFC, 10));
+                if (pages.indexOf(event.getLocalState()) != target)
+                    row.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK);
                 return true;
             case DragEvent.ACTION_DRAG_LOCATION:
                 int[] rowPos = new int[2];
@@ -360,11 +362,11 @@ public final class MainActivity extends Activity {
                 row.setBackgroundColor(Color.TRANSPARENT);
                 int from = pages.indexOf((PhotoPage) event.getLocalState());
                 if (from < 0) return false;
-                int insertion = target + (event.getY() >= row.getHeight() / 2f ? 1 : 0);
-                if (from < insertion) insertion--;
-                if (from != insertion) {
+                // Releasing anywhere over the other photo selects it: no midpoint
+                // threshold and no extra downward/upward movement required.
+                if (from != target) {
                     PhotoPage moved = pages.remove(from);
-                    pages.add(insertion, moved);
+                    pages.add(target, moved);
                     refreshRows();
                 }
                 return true;
