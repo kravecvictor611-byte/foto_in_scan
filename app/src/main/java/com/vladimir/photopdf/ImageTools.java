@@ -48,12 +48,20 @@ final class ImageTools {
     static Paint paint(int filter) {
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         if (filter == 1) {
-            ColorMatrix m = new ColorMatrix();
-            m.setSaturation(0);
-            p.setColorFilter(new ColorMatrixColorFilter(m));
+            ColorMatrix gray = new ColorMatrix();
+            gray.setSaturation(0);
+            p.setColorFilter(new ColorMatrixColorFilter(gray));
+        } else if (filter == 2) {
+            // Strong monochrome document contrast.
+            ColorMatrix gray = new ColorMatrix();
+            gray.setSaturation(0);
+            ColorMatrix contrast = new ColorMatrix(new float[]{
+                    1.65f,0,0,0,-82, 0,1.65f,0,0,-82,
+                    0,0,1.65f,0,-82, 0,0,0,1,0});
+            gray.postConcat(contrast);
+            p.setColorFilter(new ColorMatrixColorFilter(gray));
         } else if (filter == 3) {
-            // A gentle color scan look: cleaner paper and legible ink without
-            // thresholding or another resize. Keep the original color detail.
+            // Soft color scan: brighten paper while keeping color detail.
             ColorMatrix scan = new ColorMatrix();
             scan.setSaturation(0.88f);
             ColorMatrix contrast = new ColorMatrix(new float[]{
@@ -61,14 +69,16 @@ final class ImageTools {
                     0,0,1.12f,0,-11, 0,0,0,1,0});
             scan.postConcat(contrast);
             p.setColorFilter(new ColorMatrixColorFilter(scan));
-        } else if (filter == 2) {
-            // Grayscale + increased contrast for document-like photos.
-            ColorMatrix gray = new ColorMatrix();
-            gray.setSaturation(0);
+        } else if (filter == 4) {
+            // Softer than "Document": white paper, black ink and retained
+            // midtones for fine print. No thresholding or extra resizing.
+            ColorMatrix scan = new ColorMatrix();
+            scan.setSaturation(0);
             ColorMatrix contrast = new ColorMatrix(new float[]{
-                    1.65f,0,0,0,-82, 0,1.65f,0,0,-82, 0,0,1.65f,0,-82, 0,0,0,1,0});
-            gray.postConcat(contrast);
-            p.setColorFilter(new ColorMatrixColorFilter(gray));
+                    1.25f,0,0,0,-22, 0,1.25f,0,0,-22,
+                    0,0,1.25f,0,-22, 0,0,0,1,0});
+            scan.postConcat(contrast);
+            p.setColorFilter(new ColorMatrixColorFilter(scan));
         }
         return p;
     }

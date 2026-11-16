@@ -294,7 +294,7 @@ public final class MainActivity extends Activity {
             row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
             TextView name = text("Страница " + (i + 1), 15, ink);
             label.addView(name);
-            label.addView(text(new String[]{"Цветная", "Чёрно-белая", "Документ", "Скан · цветной"}[page.filter],
+            label.addView(text(new String[]{"Цветная", "Чёрно-белая", "Документ", "Скан · цветной", "Скан · ч/б"}[page.filter],
                     12, 0xFF68758E));
             image.setOnClickListener(v -> edit(index));
             label.setOnClickListener(v -> edit(index));
@@ -444,7 +444,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, -2);
         filterParams.topMargin = dp(12);
         content.addView(text("Фильтр", 14, ink), filterParams);
-        Spinner filters = spinner(new String[]{"Цветная", "Чёрно-белая", "Документ · контраст", "Эффект скана · цветной"});
+        Spinner filters = spinner(new String[]{"Цветная", "Чёрно-белая", "Документ · контраст", "Эффект скана · цветной", "Эффект скана · ч/б"});
         filters.setSelection(draft.filter);
         filters.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
