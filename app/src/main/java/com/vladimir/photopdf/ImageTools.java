@@ -75,8 +75,8 @@ final class ImageTools {
             ColorMatrix scan = new ColorMatrix();
             scan.setSaturation(0);
             ColorMatrix contrast = new ColorMatrix(new float[]{
-                    1.25f,0,0,0,-22, 0,1.25f,0,0,-22,
-                    0,0,1.25f,0,-22, 0,0,0,1,0});
+                    1.31f,0,0,0,-30, 0,1.31f,0,0,-30,
+                    0,0,1.31f,0,-30, 0,0,0,1,0});
             scan.postConcat(contrast);
             p.setColorFilter(new ColorMatrixColorFilter(scan));
         }

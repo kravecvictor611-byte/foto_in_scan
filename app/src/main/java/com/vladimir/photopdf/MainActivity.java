@@ -15,6 +15,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
+import androidx.core.content.FileProvider;
 import android.graphics.pdf.PdfRenderer;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -44,21 +45,82 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MainActivity extends Activity {
-    private static final int PICK = 1, SAVE = 2;
+    private static final int PICK = 1, SAVE = 2, CAPTURE = 3;
     private final ArrayList<PhotoPage> pages = new ArrayList<>();
     private LinearLayout rows;
     private TextView count;
     private Button saveButton, previewButton;
     private Spinner sizeChoice, marginChoice;
     private File preparedPdf;
+    private Uri pendingCaptureUri;
+    private File pendingCaptureFile;
     private boolean busy;
     private final int ink = 0xFF17223A;
     private final int blue = 0xFF255DCE;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        if (state != null) {
+            ArrayList<Bundle> savedPages = state.getParcelableArrayList("photoPages");
+            if (savedPages != null) for (Bundle saved : savedPages) {
+                String source = saved.getString("uri");
+                if (source == null) continue;
+                Uri uri = Uri.parse(source);
+                if (!"content".equals(uri.getScheme())) continue;
+                PhotoPage page = new PhotoPage(uri);
+                page.left = saved.getFloat("left", 0f);
+                page.top = saved.getFloat("top", 0f);
+                page.right = saved.getFloat("right", 1f);
+                page.bottom = saved.getFloat("bottom", 1f);
+                page.rotation = saved.getInt("rotation", 0);
+                page.filter = saved.getInt("filter", 0);
+                if (pages.size() < 50) pages.add(page);
+            }
+            String pdfName = state.getString("preparedPdfName");
+            if (pdfName != null && pdfName.equals(new File(pdfName).getName())
+                    && pdfName.startsWith("prepared-") && pdfName.endsWith(".pdf"))
+                preparedPdf = new File(getCacheDir(), pdfName);
+            String name = state.getString("pendingCaptureName");
+            String uri = state.getString("pendingCaptureUri");
+            if (name != null && name.equals(new File(name).getName())
+                    && name.startsWith("photo-") && name.endsWith(".jpg") && uri != null) {
+                pendingCaptureFile = new File(cameraDirectory(), name);
+                pendingCaptureUri = Uri.parse(uri);
+            }
+        }
         clearStalePdfCache();
+        clearStaleCameraCache();
         buildUi();
+    }
+
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+        ArrayList<Bundle> savedPages = new ArrayList<>();
+        for (PhotoPage page : pages) {
+            Bundle saved = new Bundle();
+            saved.putString("uri", page.uri.toString());
+            saved.putFloat("left", page.left);
+            saved.putFloat("top", page.top);
+            saved.putFloat("right", page.right);
+            saved.putFloat("bottom", page.bottom);
+            saved.putInt("rotation", page.rotation);
+            saved.putInt("filter", page.filter);
+            savedPages.add(saved);
+        }
+        state.putParcelableArrayList("photoPages", savedPages);
+        if (preparedPdf != null) state.putString("preparedPdfName", preparedPdf.getName());
+        if (pendingCaptureFile != null && pendingCaptureUri != null) {
+            state.putString("pendingCaptureName", pendingCaptureFile.getName());
+            state.putString("pendingCaptureUri", pendingCaptureUri.toString());
+        }
+    }
+
+    @Override protected void onDestroy() {
+        if (isFinishing()) {
+            File[] photos = cameraDirectory().listFiles();
+            if (photos != null) for (File photo : photos) photo.delete();
+        }
+        super.onDestroy();
     }
 
     private int dp(float value) { return (int) (value * getResources().getDisplayMetrics().density + .5f); }
@@ -114,9 +176,21 @@ public final class MainActivity extends Activity {
         body.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
         addSpace(body, 15);
 
-        Button add = button("＋  Добавить фотографии", true);
+        LinearLayout photoActions = new LinearLayout(this);
+        photoActions.setOrientation(LinearLayout.HORIZONTAL);
+        body.addView(photoActions, new LinearLayout.LayoutParams(-1, dp(56)));
+        Button add = button("＋ Добавить", true);
+        add.setTextSize(14);
+        add.setSingleLine(true);
         add.setOnClickListener(v -> choosePhotos());
-        body.addView(add, new LinearLayout.LayoutParams(-1, dp(56)));
+        photoActions.addView(add, new LinearLayout.LayoutParams(0, dp(56), 1));
+        Button camera = button("📷 Камера", false);
+        camera.setTextSize(14);
+        camera.setSingleLine(true);
+        camera.setOnClickListener(v -> takePhoto());
+        LinearLayout.LayoutParams cameraParams = new LinearLayout.LayoutParams(0, dp(56), 1);
+        cameraParams.leftMargin = dp(8);
+        photoActions.addView(camera, cameraParams);
         previewButton = button("Предпросмотр PDF", false);
         LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(48));
         previewParams.topMargin = dp(10);
@@ -202,8 +276,71 @@ public final class MainActivity extends Activity {
         catch (Exception e) { Toast.makeText(this, "Не удалось открыть выбор фото", Toast.LENGTH_LONG).show(); }
     }
 
+    private File cameraDirectory() { return new File(getCacheDir(), "camera"); }
+
+    private void clearStaleCameraCache() {
+        File[] photos = cameraDirectory().listFiles();
+        if (photos == null) return;
+        for (File photo : photos) {
+            if (photo.equals(pendingCaptureFile)) continue;
+            boolean inUse = false;
+            for (PhotoPage page : pages) {
+                if ((getPackageName() + ".camera").equals(page.uri.getAuthority())
+                        && photo.getName().equals(page.uri.getLastPathSegment())) {
+                    inUse = true;
+                    break;
+                }
+            }
+            if (!inUse) photo.delete();
+        }
+    }
+
+    private void takePhoto() {
+        if (busy) return;
+        if (pages.size() >= 50) {
+            Toast.makeText(this, "В документе уже 50 фотографий", Toast.LENGTH_LONG).show();
+            return;
+        }
+        File directory = cameraDirectory();
+        if (!directory.exists() && !directory.mkdirs()) {
+            error("Не удалось подготовить место для фотографии");
+            return;
+        }
+        try {
+            File file = File.createTempFile("photo-", ".jpg", directory);
+            pendingCaptureFile = file;
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".camera", file);
+            Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, uri);
+            intent.setClipData(ClipData.newRawUri("photo", uri));
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            pendingCaptureUri = uri;
+            startActivityForResult(intent, CAPTURE);
+        } catch (Exception e) {
+            if (pendingCaptureFile != null) pendingCaptureFile.delete();
+            pendingCaptureFile = null;
+            pendingCaptureUri = null;
+            error("Не удалось открыть камеру: " + e.getMessage());
+        }
+    }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == CAPTURE) {
+            File captured = pendingCaptureFile;
+            Uri uri = pendingCaptureUri;
+            pendingCaptureFile = null;
+            pendingCaptureUri = null;
+            if (resultCode == RESULT_OK && captured != null && captured.length() > 0 && uri != null) {
+                addPhoto(uri);
+                refreshRows();
+            } else {
+                if (captured != null) captured.delete();
+                if (resultCode == RESULT_OK) error("Камера не сохранила фотографию. Попробуйте ещё раз.");
+            }
+            return;
+        }
         if (requestCode == PICK && resultCode == RESULT_OK && data != null) {
             if (data.getClipData() != null) {
                 int available = Math.max(0, 50 - pages.size());
@@ -247,6 +384,17 @@ public final class MainActivity extends Activity {
         }
     }
 
+    private void removePhoto(int index) {
+        PhotoPage removed = pages.remove(index);
+        if ((getPackageName() + ".camera").equals(removed.uri.getAuthority())) {
+            String name = removed.uri.getLastPathSegment();
+            if (name != null && name.equals(new File(name).getName())
+                    && name.startsWith("photo-") && name.endsWith(".jpg"))
+                new File(cameraDirectory(), name).delete();
+        }
+        refreshRows();
+    }
+
     private void addPhoto(Uri uri) {
         if (pages.size() >= 50) {
             Toast.makeText(this, "За раз можно добавить не более 50 фотографий", Toast.LENGTH_LONG).show();
@@ -258,7 +406,8 @@ public final class MainActivity extends Activity {
     private void clearStalePdfCache() {
         File[] stale = getCacheDir().listFiles((dir, name) ->
                 name.startsWith("prepared-") || name.startsWith("preview-"));
-        if (stale != null) for (File file : stale) file.delete();
+        if (stale != null) for (File file : stale)
+            if (!file.equals(preparedPdf)) file.delete();
     }
 
     private void refreshRows() {
@@ -320,7 +469,7 @@ public final class MainActivity extends Activity {
             down.setOnClickListener(v -> move(index, index + 1));
             Button remove = smallButton("×", true);
             row.addView(remove, new LinearLayout.LayoutParams(dp(39), dp(43)));
-            remove.setOnClickListener(v -> { pages.remove(index); refreshRows(); });
+            remove.setOnClickListener(v -> removePhoto(index));
         }
         refreshButton();
     }

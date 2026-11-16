@@ -4,6 +4,15 @@
         android:label="Фото в PDF"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
+        <provider
+            android:name=".CameraFileProvider"
+            android:authorities="${applicationId}.camera"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/camera_paths" />
+        </provider>
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
