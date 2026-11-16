@@ -11,6 +11,11 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.ParcelFileDescriptor;
+import android.graphics.pdf.PdfRenderer;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.TypefaceSpan;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.DragEvent;
@@ -39,7 +44,7 @@ public final class MainActivity extends Activity {
     private final ArrayList<PhotoPage> pages = new ArrayList<>();
     private LinearLayout rows;
     private TextView count;
-    private Button saveButton;
+    private Button saveButton, previewButton;
     private Spinner sizeChoice, marginChoice;
     private File preparedPdf;
     private boolean busy;
@@ -90,12 +95,18 @@ public final class MainActivity extends Activity {
         body.setPadding(dp(20), dp(37), dp(20), dp(18));
         scroll.addView(body);
 
-        TextView title = text("Фото в PDF", 29, ink);
-        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        title.setLetterSpacing(0.01f);
-        body.addView(title);
-        addSpace(body, 5);
-        body.addView(text("Файлы остаются на телефоне", 13, 0xFF68758E));
+        TextView title = text("Фото в PDF", 30, ink);
+        title.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        title.setLetterSpacing(0.015f);
+        title.setGravity(Gravity.CENTER);
+        SpannableString heading = new SpannableString("Фото в PDF");
+        heading.setSpan(new TypefaceSpan("sans-serif-medium"), 7, 10, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        title.setText(heading);
+        body.addView(title, new LinearLayout.LayoutParams(-1, -2));
+        addSpace(body, 6);
+        TextView subtitle = text("Файлы остаются на телефоне", 13, 0xFF68758E);
+        subtitle.setGravity(Gravity.CENTER);
+        body.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
         addSpace(body, 22);
 
         Button add = button("＋  Добавить фотографии", true);
@@ -138,6 +149,12 @@ public final class MainActivity extends Activity {
         addSpace(options, 9);
         options.addView(text("Одна фотография на страницу. Ориентация листа подстраивается автоматически.",
                 13, 0xFF68758E));
+        previewButton = button("Предпросмотр PDF", false);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(48));
+        previewParams.topMargin = dp(16);
+        options.addView(previewButton, previewParams);
+        previewButton.setOnClickListener(v -> preparePreview());
+        refreshButton();
 
         LinearLayout footer = vertical();
         footer.setBackgroundColor(Color.WHITE);
@@ -443,6 +460,7 @@ public final class MainActivity extends Activity {
 
     private void refreshButton() {
         if (saveButton != null) saveButton.setEnabled(!busy && !pages.isEmpty());
+        if (previewButton != null) previewButton.setEnabled(!busy && !pages.isEmpty());
     }
     private void setBusy(boolean value, String label) {
         busy = value;
@@ -450,6 +468,129 @@ public final class MainActivity extends Activity {
         refreshButton();
     }
     private void error(String message) { new AlertDialog.Builder(this).setMessage(message).setPositiveButton("Понятно", null).show(); }
+
+    private void preparePreview() {
+        if (pages.isEmpty() || busy) return;
+        int selectedSize = sizeChoice.getSelectedItemPosition();
+        int margin = new int[]{0, 14, 32}[marginChoice.getSelectedItemPosition()];
+        List<PhotoPage> snapshot = new ArrayList<>(pages);
+        setBusy(true, "Создаём предпросмотр…");
+        new Thread(() -> {
+            File file = new File(getCacheDir(), "preview-" + System.currentTimeMillis() + ".pdf");
+            try {
+                PdfWriter.write(getContentResolver(), snapshot, selectedSize, margin, file);
+                runOnUiThread(() -> {
+                    setBusy(false, null);
+                    showPreview(file);
+                });
+            } catch (Exception e) {
+                file.delete();
+                runOnUiThread(() -> {
+                    setBusy(false, null);
+                    error("Не удалось создать предпросмотр: " + e.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private Bitmap renderPreviewPage(PdfRenderer renderer, int index) {
+        try (PdfRenderer.Page page = renderer.openPage(index)) {
+            float scale = Math.min(
+                    Math.min((getResources().getDisplayMetrics().widthPixels - dp(88))
+                            / (float) page.getWidth(), 900f / page.getWidth()),
+                    1200f / page.getHeight());
+            int width = Math.max(1, Math.round(page.getWidth() * scale));
+            int height = Math.max(1, Math.round(page.getHeight() * scale));
+            Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+            try {
+                bitmap.eraseColor(Color.WHITE);
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                return bitmap;
+            } catch (RuntimeException e) {
+                bitmap.recycle();
+                throw e;
+            }
+        }
+    }
+
+    private void showPreview(File file) {
+        ParcelFileDescriptor descriptor = null;
+        PdfRenderer renderer = null;
+        try {
+            descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+            renderer = new PdfRenderer(descriptor);
+            if (renderer.getPageCount() == 0) throw new IllegalStateException("В PDF нет страниц");
+        } catch (Exception e) {
+            if (renderer != null) renderer.close();
+            if (descriptor != null) {
+                try { descriptor.close(); } catch (Exception ignored) { }
+            }
+            file.delete();
+            error("Не удалось открыть предпросмотр: " + e.getMessage());
+            return;
+        }
+        final PdfRenderer pdf = renderer;
+        final ParcelFileDescriptor fd = descriptor;
+        LinearLayout content = vertical();
+        content.setPadding(dp(16), dp(12), dp(16), dp(8));
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setBackgroundColor(0xFFE8EEFC);
+        image.setPadding(dp(8), dp(8), dp(8), dp(8));
+        content.addView(image, new LinearLayout.LayoutParams(-1,
+                Math.min(dp(460), getResources().getDisplayMetrics().heightPixels / 2)));
+        LinearLayout navigation = new LinearLayout(this);
+        navigation.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams navParams = new LinearLayout.LayoutParams(-1, dp(54));
+        navParams.topMargin = dp(8);
+        content.addView(navigation, navParams);
+        Button previous = button("←", false);
+        navigation.addView(previous, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        TextView pageLabel = text("", 14, ink);
+        pageLabel.setGravity(Gravity.CENTER);
+        navigation.addView(pageLabel, new LinearLayout.LayoutParams(0, -1, 1));
+        Button next = button("→", false);
+        navigation.addView(next, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        int[] pageIndex = {0};
+        Bitmap[] shown = {null};
+        Runnable update = () -> {
+            try {
+                Bitmap bitmap = renderPreviewPage(pdf, pageIndex[0]);
+                Bitmap old = shown[0];
+                shown[0] = bitmap;
+                image.setImageBitmap(bitmap);
+                if (old != null) old.recycle();
+                pageLabel.setText("Страница " + (pageIndex[0] + 1) + " из " + pdf.getPageCount());
+                previous.setEnabled(pageIndex[0] > 0);
+                next.setEnabled(pageIndex[0] < pdf.getPageCount() - 1);
+            } catch (Exception e) {
+                error("Не удалось показать страницу: " + e.getMessage());
+            }
+        };
+        previous.setOnClickListener(v -> { pageIndex[0]--; update.run(); });
+        next.setOnClickListener(v -> { pageIndex[0]++; update.run(); });
+        try {
+            update.run();
+            AlertDialog dialog = new AlertDialog.Builder(this)
+                    .setTitle("Предпросмотр PDF")
+                    .setView(content)
+                    .setPositiveButton("Закрыть", null).create();
+            dialog.setOnDismissListener(d -> {
+                image.setImageDrawable(null);
+                if (shown[0] != null) shown[0].recycle();
+                pdf.close();
+                try { fd.close(); } catch (Exception ignored) { }
+                file.delete();
+            });
+            dialog.show();
+        } catch (Exception e) {
+            if (shown[0] != null) shown[0].recycle();
+            pdf.close();
+            try { fd.close(); } catch (Exception ignored) { }
+            file.delete();
+            error("Не удалось показать предпросмотр: " + e.getMessage());
+        }
+    }
 
     private void preparePdf() {
         if (pages.isEmpty() || busy) return;
