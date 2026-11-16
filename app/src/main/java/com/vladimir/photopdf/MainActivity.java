@@ -2,15 +2,19 @@ package com.vladimir.photopdf;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.view.Gravity;
+import android.view.DragEvent;
+import android.view.WindowInsets;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -83,14 +87,15 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout body = vertical();
-        body.setPadding(dp(20), dp(25), dp(20), dp(18));
+        body.setPadding(dp(20), dp(37), dp(20), dp(18));
         scroll.addView(body);
 
         TextView title = text("Фото в PDF", 29, ink);
-        title.setTypeface(null, 1);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        title.setLetterSpacing(0.01f);
         body.addView(title);
         addSpace(body, 5);
-        body.addView(text("Без водяного знака · Файлы остаются на телефоне", 13, 0xFF68758E));
+        body.addView(text("Файлы остаются на телефоне", 13, 0xFF68758E));
         addSpace(body, 22);
 
         Button add = button("＋  Добавить фотографии", true);
@@ -106,7 +111,7 @@ public final class MainActivity extends Activity {
         count.setTypeface(null, 1);
         card.addView(count);
         addSpace(card, 6);
-        card.addView(text("Нажми на фото, чтобы обрезать, повернуть или выбрать фильтр. Порядок можно изменить стрелками.",
+        card.addView(text("Нажми на фото, чтобы изменить его. Перетаскивай за значок ⋮⋮ или меняй порядок стрелками.",
                 13, 0xFF68758E));
         addSpace(card, 12);
         rows = vertical();
@@ -137,6 +142,13 @@ public final class MainActivity extends Activity {
         LinearLayout footer = vertical();
         footer.setBackgroundColor(Color.WHITE);
         footer.setPadding(dp(20), dp(12), dp(20), dp(18));
+        if (Build.VERSION.SDK_INT >= 35) {
+            footer.setOnApplyWindowInsetsListener((view, insets) -> {
+                int bottom = insets.getInsets(WindowInsets.Type.navigationBars()).bottom;
+                view.setPadding(dp(20), dp(12), dp(20), dp(18) + bottom);
+                return insets;
+            });
+        }
         root.addView(footer);
         saveButton = button("Сохранить PDF", true);
         saveButton.setOnClickListener(v -> preparePdf());
@@ -193,7 +205,7 @@ public final class MainActivity extends Activity {
                         while ((n = input.read(bytes)) != -1) output.write(bytes, 0, n);
                         runOnUiThread(() -> new AlertDialog.Builder(this)
                                 .setTitle("PDF готов")
-                                .setMessage("Файл сохранён без водяного знака.")
+                                .setMessage("Файл сохранён.")
                                 .setPositiveButton("Открыть", (d, w) -> openPdf(destination))
                                 .setNegativeButton("Готово", null).show());
                     } catch (Exception e) {
@@ -234,6 +246,7 @@ public final class MainActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(0, dp(8), 0, dp(8));
+            row.setMinimumHeight(dp(82));
             rows.addView(row);
             ImageView image = new ImageView(this);
             image.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -255,6 +268,19 @@ public final class MainActivity extends Activity {
                     12, 0xFF68758E));
             image.setOnClickListener(v -> edit(index));
             label.setOnClickListener(v -> edit(index));
+            TextView handle = text("⋮⋮", 22, blue);
+            handle.setGravity(Gravity.CENTER);
+            handle.setContentDescription("Перетащить страницу " + (i + 1));
+            row.addView(handle, new LinearLayout.LayoutParams(dp(32), dp(48)));
+            handle.setOnTouchListener((v, event) -> {
+                if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN && !busy) {
+                    return startPageDrag(row, page, index);
+                }
+                return true;
+            });
+            image.setOnLongClickListener(v -> startPageDrag(row, page, index));
+            label.setOnLongClickListener(v -> startPageDrag(row, page, index));
+            row.setOnDragListener((v, event) -> onPageDrag(row, index, scrollForRows(), event));
             Button up = smallButton("↑", i > 0);
             row.addView(up, new LinearLayout.LayoutParams(dp(39), dp(43)));
             up.setOnClickListener(v -> move(index, index - 1));
@@ -266,6 +292,55 @@ public final class MainActivity extends Activity {
             remove.setOnClickListener(v -> { pages.remove(index); refreshRows(); });
         }
         refreshButton();
+    }
+
+    private ScrollView scrollForRows() {
+        return (ScrollView) ((View) rows.getParent().getParent()).getParent();
+    }
+
+    private boolean startPageDrag(View row, PhotoPage page, int index) {
+        if (busy || pages.size() < 2) return false;
+        ClipData data = ClipData.newPlainText("photo-page", Integer.toString(index));
+        return row.startDragAndDrop(data, new View.DragShadowBuilder(row), page, 0);
+    }
+
+    private boolean onPageDrag(View row, int target, ScrollView scroll, DragEvent event) {
+        if (!(event.getLocalState() instanceof PhotoPage)) return false;
+        switch (event.getAction()) {
+            case DragEvent.ACTION_DRAG_STARTED:
+                return true;
+            case DragEvent.ACTION_DRAG_ENTERED:
+                row.setBackground(background(0xFFE8EEFC, 10));
+                return true;
+            case DragEvent.ACTION_DRAG_LOCATION:
+                int[] rowPos = new int[2];
+                int[] scrollPos = new int[2];
+                row.getLocationOnScreen(rowPos);
+                scroll.getLocationOnScreen(scrollPos);
+                int y = rowPos[1] + (int) event.getY();
+                if (y < scrollPos[1] + dp(64)) scroll.smoothScrollBy(0, -dp(32));
+                else if (y > scrollPos[1] + scroll.getHeight() - dp(64))
+                    scroll.smoothScrollBy(0, dp(32));
+                return true;
+            case DragEvent.ACTION_DRAG_EXITED:
+            case DragEvent.ACTION_DRAG_ENDED:
+                row.setBackgroundColor(Color.TRANSPARENT);
+                return true;
+            case DragEvent.ACTION_DROP:
+                row.setBackgroundColor(Color.TRANSPARENT);
+                int from = pages.indexOf((PhotoPage) event.getLocalState());
+                if (from < 0) return false;
+                int insertion = target + (event.getY() >= row.getHeight() / 2f ? 1 : 0);
+                if (from < insertion) insertion--;
+                if (from != insertion) {
+                    PhotoPage moved = pages.remove(from);
+                    pages.add(insertion, moved);
+                    refreshRows();
+                }
+                return true;
+            default:
+                return true;
+        }
     }
 
     private Button smallButton(String label, boolean enabled) {

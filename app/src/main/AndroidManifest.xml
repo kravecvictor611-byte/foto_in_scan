@@ -2,6 +2,7 @@
     <application
         android:allowBackup="false"
         android:label="Фото в PDF"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/AppTheme">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
