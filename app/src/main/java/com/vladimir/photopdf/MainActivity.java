@@ -6,6 +6,9 @@ import android.content.ClipData;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.DashPathEffect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -92,7 +95,7 @@ public final class MainActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout body = vertical();
-        body.setPadding(dp(20), dp(37), dp(20), dp(18));
+        body.setPadding(dp(20), dp(48), dp(20), dp(18));
         scroll.addView(body);
 
         TextView title = text("Фото в PDF", 30, ink);
@@ -107,12 +110,17 @@ public final class MainActivity extends Activity {
         TextView subtitle = text("Файлы остаются на телефоне", 13, 0xFF68758E);
         subtitle.setGravity(Gravity.CENTER);
         body.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
-        addSpace(body, 22);
+        addSpace(body, 15);
 
         Button add = button("＋  Добавить фотографии", true);
         add.setOnClickListener(v -> choosePhotos());
         body.addView(add, new LinearLayout.LayoutParams(-1, dp(56)));
-        addSpace(body, 21);
+        previewButton = button("Предпросмотр PDF", false);
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(48));
+        previewParams.topMargin = dp(10);
+        body.addView(previewButton, previewParams);
+        previewButton.setOnClickListener(v -> preparePreview());
+        addSpace(body, 14);
 
         LinearLayout card = vertical();
         card.setBackground(background(Color.WHITE, 18));
@@ -124,11 +132,11 @@ public final class MainActivity extends Activity {
         addSpace(card, 6);
         card.addView(text("Нажми на фото, чтобы изменить его. Перетаскивай за значок ⋮⋮ или меняй порядок стрелками.",
                 13, 0xFF68758E));
-        addSpace(card, 12);
+        addSpace(card, 10);
         rows = vertical();
         card.addView(rows);
         refreshRows();
-        addSpace(body, 17);
+        addSpace(body, 12);
 
         LinearLayout options = vertical();
         options.setPadding(dp(16), dp(18), dp(16), dp(18));
@@ -137,25 +145,18 @@ public final class MainActivity extends Activity {
         TextView optionsTitle = text("Настройки PDF", 18, ink);
         optionsTitle.setTypeface(null, 1);
         options.addView(optionsTitle);
-        addSpace(options, 15);
+        addSpace(options, 12);
         options.addView(text("Размер страницы", 14, ink));
-        sizeChoice = spinner(new String[]{"A4 · под фото", "Letter · под фото", "По пропорциям фото"});
+        sizeChoice = spinner(new String[]{"A4 · 210 × 297 мм", "Letter · 216 × 279 мм", "По пропорциям фото"});
         options.addView(sizeChoice, new LinearLayout.LayoutParams(-1, dp(48)));
-        addSpace(options, 10);
+        addSpace(options, 6);
         options.addView(text("Поля", 14, ink));
-        marginChoice = spinner(new String[]{"Без полей", "Узкие", "Обычные"});
+        marginChoice = spinner(new String[]{"Без полей · 0 мм", "Узкие · около 5 мм", "Обычные · около 11 мм"});
         marginChoice.setSelection(1);
         options.addView(marginChoice, new LinearLayout.LayoutParams(-1, dp(48)));
-        addSpace(options, 9);
+        addSpace(options, 6);
         options.addView(text("Одна фотография на страницу. Ориентация листа подстраивается автоматически.",
                 13, 0xFF68758E));
-        previewButton = button("Предпросмотр PDF", false);
-        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(48));
-        previewParams.topMargin = dp(16);
-        options.addView(previewButton, previewParams);
-        previewButton.setOnClickListener(v -> preparePreview());
-        refreshButton();
-
         LinearLayout footer = vertical();
         footer.setBackgroundColor(Color.WHITE);
         footer.setPadding(dp(20), dp(12), dp(20), dp(18));
@@ -481,7 +482,7 @@ public final class MainActivity extends Activity {
                 PdfWriter.write(getContentResolver(), snapshot, selectedSize, margin, file);
                 runOnUiThread(() -> {
                     setBusy(false, null);
-                    showPreview(file);
+                    showPreview(file, selectedSize, margin);
                 });
             } catch (Exception e) {
                 file.delete();
@@ -493,7 +494,7 @@ public final class MainActivity extends Activity {
         }).start();
     }
 
-    private Bitmap renderPreviewPage(PdfRenderer renderer, int index) {
+    private Bitmap renderPreviewPage(PdfRenderer renderer, int index, int marginPt) {
         try (PdfRenderer.Page page = renderer.openPage(index)) {
             float scale = Math.min(
                     Math.min((getResources().getDisplayMetrics().widthPixels - dp(88))
@@ -505,6 +506,23 @@ public final class MainActivity extends Activity {
             try {
                 bitmap.eraseColor(Color.WHITE);
                 page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                if (marginPt > 0) {
+                    Canvas guide = new Canvas(bitmap);
+                    float insetX = marginPt * width / (float) page.getWidth();
+                    float insetY = marginPt * height / (float) page.getHeight();
+                    Paint shade = new Paint();
+                    shade.setColor(0x28345FD0);
+                    guide.drawRect(0, 0, width, insetY, shade);
+                    guide.drawRect(0, height - insetY, width, height, shade);
+                    guide.drawRect(0, insetY, insetX, height - insetY, shade);
+                    guide.drawRect(width - insetX, insetY, width, height - insetY, shade);
+                    Paint outline = new Paint(Paint.ANTI_ALIAS_FLAG);
+                    outline.setColor(0xFF255DCE);
+                    outline.setStyle(Paint.Style.STROKE);
+                    outline.setStrokeWidth(Math.max(2f, width / 320f));
+                    outline.setPathEffect(new DashPathEffect(new float[]{9f, 6f}, 0));
+                    guide.drawRect(insetX, insetY, width - insetX, height - insetY, outline);
+                }
                 return bitmap;
             } catch (RuntimeException e) {
                 bitmap.recycle();
@@ -513,7 +531,7 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void showPreview(File file) {
+    private void showPreview(File file, int selectedSize, int marginPt) {
         ParcelFileDescriptor descriptor = null;
         PdfRenderer renderer = null;
         try {
@@ -533,6 +551,16 @@ public final class MainActivity extends Activity {
         final ParcelFileDescriptor fd = descriptor;
         LinearLayout content = vertical();
         content.setPadding(dp(16), dp(12), dp(16), dp(8));
+        String pageSizeName = new String[]{"A4", "Letter", "По пропорциям фото"}[selectedSize];
+        String marginName = marginPt == 0 ? "0 мм" : marginPt == 14 ? "≈5 мм" : "≈11 мм";
+        TextView details = text(pageSizeName + " · Поля: " + marginName, 14, ink);
+        details.setGravity(Gravity.CENTER);
+        content.addView(details);
+        addSpace(content, 6);
+        TextView guideHint = text("Синим показаны поля. В PDF этой разметки нет.", 12, 0xFF68758E);
+        guideHint.setGravity(Gravity.CENTER);
+        content.addView(guideHint);
+        addSpace(content, 10);
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.FIT_CENTER);
         image.setBackgroundColor(0xFFE8EEFC);
@@ -555,7 +583,7 @@ public final class MainActivity extends Activity {
         Bitmap[] shown = {null};
         Runnable update = () -> {
             try {
-                Bitmap bitmap = renderPreviewPage(pdf, pageIndex[0]);
+                Bitmap bitmap = renderPreviewPage(pdf, pageIndex[0], marginPt);
                 Bitmap old = shown[0];
                 shown[0] = bitmap;
                 image.setImageBitmap(bitmap);
