@@ -55,12 +55,15 @@ public final class MainActivity extends Activity {
     private Uri pendingCaptureUri;
     private File pendingCaptureFile;
     private boolean busy;
+    // -1 means per-photo filters; otherwise this filter applies to all pages.
+    private int sharedFilter = -1;
     private final int ink = 0xFF17223A;
     private final int blue = 0xFF255DCE;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         if (state != null) {
+            sharedFilter = state.getInt("sharedFilter", -1);
             ArrayList<Bundle> savedPages = state.getParcelableArrayList("photoPages");
             if (savedPages != null) for (Bundle saved : savedPages) {
                 String source = saved.getString("uri");
@@ -88,6 +91,7 @@ public final class MainActivity extends Activity {
                 pendingCaptureUri = Uri.parse(uri);
             }
         }
+        if (pages.isEmpty()) sharedFilter = -1;
         clearStalePdfCache();
         clearStaleCameraCache();
         buildUi();
@@ -108,6 +112,7 @@ public final class MainActivity extends Activity {
             savedPages.add(saved);
         }
         state.putParcelableArrayList("photoPages", savedPages);
+        state.putInt("sharedFilter", sharedFilter);
         if (preparedPdf != null) state.putString("preparedPdfName", preparedPdf.getName());
         if (pendingCaptureFile != null && pendingCaptureUri != null) {
             state.putString("pendingCaptureName", pendingCaptureFile.getName());
@@ -392,6 +397,7 @@ public final class MainActivity extends Activity {
                     && name.startsWith("photo-") && name.endsWith(".jpg"))
                 new File(cameraDirectory(), name).delete();
         }
+        if (pages.isEmpty()) sharedFilter = -1;
         refreshRows();
     }
 
@@ -400,7 +406,9 @@ public final class MainActivity extends Activity {
             Toast.makeText(this, "За раз можно добавить не более 50 фотографий", Toast.LENGTH_LONG).show();
             return;
         }
-        pages.add(new PhotoPage(uri));
+        PhotoPage page = new PhotoPage(uri);
+        if (sharedFilter >= 0) page.filter = sharedFilter;
+        pages.add(page);
     }
 
     private void clearStalePdfCache() {
@@ -612,6 +620,7 @@ public final class MainActivity extends Activity {
             applyToAll.setTextSize(14);
             applyToAll.setButtonTintList(android.content.res.ColorStateList.valueOf(blue));
             applyToAll.setMinHeight(dp(48));
+            applyToAll.setChecked(sharedFilter >= 0);
             LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(-1, -2);
             applyParams.topMargin = dp(8);
             content.addView(applyToAll, applyParams);
@@ -631,8 +640,10 @@ public final class MainActivity extends Activity {
                     original.rotation = draft.rotation;
                     int selectedFilter = filters.getSelectedItemPosition();
                     if (allPhotos != null && allPhotos.isChecked()) {
+                        sharedFilter = selectedFilter;
                         for (PhotoPage page : pages) page.filter = selectedFilter;
                     } else {
+                        sharedFilter = -1;
                         original.filter = selectedFilter;
                     }
                     refreshRows();
