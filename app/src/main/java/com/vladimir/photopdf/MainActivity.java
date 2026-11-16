@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        clearStalePdfCache();
         buildUi();
     }
 
@@ -204,9 +205,13 @@ public final class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == PICK && resultCode == RESULT_OK && data != null) {
             if (data.getClipData() != null) {
-                for (int i = 0; i < data.getClipData().getItemCount(); i++)
-                    addPhoto(data.getClipData().getItemAt(i).getUri(), data);
-            } else if (data.getData() != null) addPhoto(data.getData(), data);
+                int available = Math.max(0, 50 - pages.size());
+                int selected = data.getClipData().getItemCount();
+                for (int i = 0; i < Math.min(selected, available); i++)
+                    addPhoto(data.getClipData().getItemAt(i).getUri());
+                if (selected > available)
+                    Toast.makeText(this, "Добавлено не более 50 фотографий", Toast.LENGTH_LONG).show();
+            } else if (data.getData() != null) addPhoto(data.getData());
             refreshRows();
         } else if (requestCode == SAVE) {
             if (resultCode == RESULT_OK && data != null && data.getData() != null && preparedPdf != null) {
@@ -241,11 +246,18 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void addPhoto(Uri uri, Intent data) {
-        try {
-            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        } catch (Exception ignored) { /* Photo Picker grants access without a persistent document permission. */ }
+    private void addPhoto(Uri uri) {
+        if (pages.size() >= 50) {
+            Toast.makeText(this, "За раз можно добавить не более 50 фотографий", Toast.LENGTH_LONG).show();
+            return;
+        }
         pages.add(new PhotoPage(uri));
+    }
+
+    private void clearStalePdfCache() {
+        File[] stale = getCacheDir().listFiles((dir, name) ->
+                name.startsWith("prepared-") || name.startsWith("preview-"));
+        if (stale != null) for (File file : stale) file.delete();
     }
 
     private void refreshRows() {
@@ -282,7 +294,7 @@ public final class MainActivity extends Activity {
             row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
             TextView name = text("Страница " + (i + 1), 15, ink);
             label.addView(name);
-            label.addView(text(new String[]{"Цветная", "Чёрно-белая", "Документ"}[page.filter],
+            label.addView(text(new String[]{"Цветная", "Чёрно-белая", "Документ", "Скан · цветной"}[page.filter],
                     12, 0xFF68758E));
             image.setOnClickListener(v -> edit(index));
             label.setOnClickListener(v -> edit(index));
@@ -430,7 +442,7 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, -2);
         filterParams.topMargin = dp(12);
         content.addView(text("Фильтр", 14, ink), filterParams);
-        Spinner filters = spinner(new String[]{"Цветная", "Чёрно-белая", "Документ · контраст"});
+        Spinner filters = spinner(new String[]{"Цветная", "Чёрно-белая", "Документ · контраст", "Эффект скана · цветной"});
         filters.setSelection(draft.filter);
         filters.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {

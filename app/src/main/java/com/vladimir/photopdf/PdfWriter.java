@@ -22,7 +22,7 @@ final class PdfWriter {
         try {
             for (int i = 0; i < pages.size(); i++) {
                 PhotoPage item = pages.get(i);
-                Bitmap decoded = ImageTools.decode(resolver, item.uri, 2600);
+                Bitmap decoded = ImageTools.decode(resolver, item.uri, 3508);
                 Bitmap bitmap = null;
                 try {
                     bitmap = ImageTools.edited(decoded, item);

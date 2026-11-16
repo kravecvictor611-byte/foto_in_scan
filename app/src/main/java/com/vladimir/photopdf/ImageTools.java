@@ -2,13 +2,11 @@ package com.vladimir.photopdf;
 
 import android.content.ContentResolver;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Matrix;
 import android.graphics.Paint;
-import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.ImageDecoder;
 import android.net.Uri;
@@ -53,6 +51,16 @@ final class ImageTools {
             ColorMatrix m = new ColorMatrix();
             m.setSaturation(0);
             p.setColorFilter(new ColorMatrixColorFilter(m));
+        } else if (filter == 3) {
+            // A gentle color scan look: cleaner paper and legible ink without
+            // thresholding or another resize. Keep the original color detail.
+            ColorMatrix scan = new ColorMatrix();
+            scan.setSaturation(0.88f);
+            ColorMatrix contrast = new ColorMatrix(new float[]{
+                    1.12f,0,0,0,-11, 0,1.12f,0,0,-11,
+                    0,0,1.12f,0,-11, 0,0,0,1,0});
+            scan.postConcat(contrast);
+            p.setColorFilter(new ColorMatrixColorFilter(scan));
         } else if (filter == 2) {
             // Grayscale + increased contrast for document-like photos.
             ColorMatrix gray = new ColorMatrix();
