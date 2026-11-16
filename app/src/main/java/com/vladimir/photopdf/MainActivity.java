@@ -373,22 +373,45 @@ public final class MainActivity extends Activity {
         LinearLayout content = vertical();
         content.setPadding(dp(14), dp(10), dp(14), dp(4));
         CropView crop = new CropView(this, bitmap, draft);
-        content.addView(crop, new LinearLayout.LayoutParams(-1, dp(340)));
+        content.addView(crop, new LinearLayout.LayoutParams(-1,
+                Math.min(dp(300), getResources().getDisplayMetrics().heightPixels / 3)));
         TextView hint = text("Перетащи углы рамки или всю рамку", 13, 0xFF68758E);
         hint.setGravity(Gravity.CENTER);
-        content.addView(hint);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+        hintParams.topMargin = dp(10);
+        content.addView(hint, hintParams);
         Button reset = button("Сбросить обрезку", false);
-        content.addView(reset);
+        reset.setTextSize(14);
+        reset.setPadding(dp(16), 0, dp(16), 0);
+        reset.setBackground(background(0xFFE8EEFC, 12));
+        LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(-2, dp(48));
+        resetParams.gravity = Gravity.CENTER_HORIZONTAL;
+        resetParams.topMargin = dp(12);
+        content.addView(reset, resetParams);
         reset.setOnClickListener(v -> {
             crop.left = 0; crop.top = 0; crop.right = 1; crop.bottom = 1; crop.invalidate();
         });
         Button rotate = button("Повернуть на 90°", false);
-        content.addView(rotate);
+        rotate.setTextSize(14);
+        rotate.setPadding(dp(16), 0, dp(16), 0);
+        rotate.setBackground(background(0xFFE8EEFC, 12));
+        LinearLayout.LayoutParams rotateParams = new LinearLayout.LayoutParams(-2, dp(48));
+        rotateParams.gravity = Gravity.CENTER_HORIZONTAL;
+        rotateParams.topMargin = dp(10);
+        content.addView(rotate, rotateParams);
+        TextView rotationInfo = text("Поворот: " + draft.rotation + "°", 12, 0xFF68758E);
+        rotationInfo.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams rotationParams = new LinearLayout.LayoutParams(-1, -2);
+        rotationParams.topMargin = dp(4);
+        content.addView(rotationInfo, rotationParams);
         rotate.setOnClickListener(v -> {
+            crop.rotateClockwise();
             draft.rotation = (draft.rotation + 90) % 360;
-            rotate.setText("Поворот: " + draft.rotation + "° (ещё 90°)");
+            rotationInfo.setText("Поворот: " + draft.rotation + "°");
         });
-        content.addView(text("Фильтр", 14, ink));
+        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(-1, -2);
+        filterParams.topMargin = dp(12);
+        content.addView(text("Фильтр", 14, ink), filterParams);
         Spinner filters = spinner(new String[]{"Цветная", "Чёрно-белая", "Документ · контраст"});
         filters.setSelection(draft.filter);
         filters.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -399,13 +422,17 @@ public final class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
         content.addView(filters);
+        ScrollView dialogScroll = new ScrollView(this);
+        dialogScroll.setFillViewport(false);
+        dialogScroll.addView(content);
         AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle("Страница " + (index + 1))
-                .setView(content)
+                .setView(dialogScroll)
                 .setNegativeButton("Отмена", null)
                 .setPositiveButton("Готово", (d, w) -> {
-                    original.left = crop.left; original.top = crop.top;
-                    original.right = crop.right; original.bottom = crop.bottom;
+                    float[] originalRect = crop.originalCrop();
+                    original.left = originalRect[0]; original.top = originalRect[1];
+                    original.right = originalRect[2]; original.bottom = originalRect[3];
                     original.rotation = draft.rotation;
                     original.filter = filters.getSelectedItemPosition();
                     refreshRows();

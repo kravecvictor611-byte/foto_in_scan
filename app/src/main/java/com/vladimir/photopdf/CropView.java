@@ -17,13 +17,16 @@ final class CropView extends View {
     private final RectF imageBounds = new RectF();
     float left, top, right, bottom;
     int filter;
+    private int rotation;
     private int drag = -1;
     private float lastX, lastY;
 
     CropView(Context context, Bitmap bitmap, PhotoPage page) {
         super(context);
         this.bitmap = bitmap;
-        left = page.left; top = page.top; right = page.right; bottom = page.bottom;
+        rotation = ((page.rotation % 360) + 360) % 360;
+        float[] rect = rotateCrop(page.left, page.top, page.right, page.bottom, rotation);
+        left = rect[0]; top = rect[1]; right = rect[2]; bottom = rect[3];
         filter = page.filter;
         shade.setColor(0x99000000);
         border.setColor(Color.WHITE);
@@ -31,18 +34,48 @@ final class CropView extends View {
         border.setStyle(Paint.Style.STROKE);
     }
 
+    private static float[] rotateCrop(float l, float t, float r, float b, int angle) {
+        switch (angle) {
+            case 90: return new float[]{1 - b, l, 1 - t, r};
+            case 180: return new float[]{1 - r, 1 - b, 1 - l, 1 - t};
+            case 270: return new float[]{t, 1 - r, b, 1 - l};
+            default: return new float[]{l, t, r, b};
+        }
+    }
+
+    void rotateClockwise() {
+        float[] rect = rotateCrop(left, top, right, bottom, 90);
+        left = rect[0]; top = rect[1]; right = rect[2]; bottom = rect[3];
+        rotation = (rotation + 90) % 360;
+        invalidate();
+    }
+
+    float[] originalCrop() {
+        return rotateCrop(left, top, right, bottom, (360 - rotation) % 360);
+    }
+
     private float dp(float value) { return value * getResources().getDisplayMetrics().density; }
 
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         canvas.drawColor(0xFF202430);
-        float scale = Math.min((getWidth() - dp(20)) / bitmap.getWidth(),
-                (getHeight() - dp(20)) / bitmap.getHeight());
-        float w = bitmap.getWidth() * scale, h = bitmap.getHeight() * scale;
+        boolean sideways = rotation == 90 || rotation == 270;
+        float displayW = sideways ? bitmap.getHeight() : bitmap.getWidth();
+        float displayH = sideways ? bitmap.getWidth() : bitmap.getHeight();
+        float scale = Math.min((getWidth() - dp(20)) / displayW,
+                (getHeight() - dp(20)) / displayH);
+        float w = displayW * scale, h = displayH * scale;
         imageBounds.set((getWidth() - w) / 2, (getHeight() - h) / 2,
                 (getWidth() + w) / 2, (getHeight() + h) / 2);
         imagePaint.setColorFilter(ImageTools.paint(filter).getColorFilter());
-        canvas.drawBitmap(bitmap, null, imageBounds, imagePaint);
+        canvas.save();
+        canvas.rotate(rotation, getWidth() / 2f, getHeight() / 2f);
+        float originalW = bitmap.getWidth() * scale, originalH = bitmap.getHeight() * scale;
+        canvas.drawBitmap(bitmap, null,
+                new RectF((getWidth() - originalW) / 2f, (getHeight() - originalH) / 2f,
+                        (getWidth() + originalW) / 2f, (getHeight() + originalH) / 2f),
+                imagePaint);
+        canvas.restore();
         float l = px(left), t = py(top), r = px(right), b = py(bottom);
         canvas.drawRect(imageBounds.left, imageBounds.top, imageBounds.right, t, shade);
         canvas.drawRect(imageBounds.left, b, imageBounds.right, imageBounds.bottom, shade);
