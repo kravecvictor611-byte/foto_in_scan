@@ -26,6 +26,7 @@ import android.view.WindowInsets;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -454,6 +455,19 @@ public final class MainActivity extends Activity {
             @Override public void onNothingSelected(AdapterView<?> parent) { }
         });
         content.addView(filters);
+        CheckBox applyToAll = null;
+        if (pages.size() > 1) {
+            applyToAll = new CheckBox(this);
+            applyToAll.setText("Применить выбранный фильтр ко всем фото (" + pages.size() + ")");
+            applyToAll.setTextColor(ink);
+            applyToAll.setTextSize(14);
+            applyToAll.setButtonTintList(android.content.res.ColorStateList.valueOf(blue));
+            applyToAll.setMinHeight(dp(48));
+            LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(-1, -2);
+            applyParams.topMargin = dp(8);
+            content.addView(applyToAll, applyParams);
+        }
+        final CheckBox allPhotos = applyToAll;
         ScrollView dialogScroll = new ScrollView(this);
         dialogScroll.setFillViewport(false);
         dialogScroll.addView(content);
@@ -466,7 +480,12 @@ public final class MainActivity extends Activity {
                     original.left = originalRect[0]; original.top = originalRect[1];
                     original.right = originalRect[2]; original.bottom = originalRect[3];
                     original.rotation = draft.rotation;
-                    original.filter = filters.getSelectedItemPosition();
+                    int selectedFilter = filters.getSelectedItemPosition();
+                    if (allPhotos != null && allPhotos.isChecked()) {
+                        for (PhotoPage page : pages) page.filter = selectedFilter;
+                    } else {
+                        original.filter = selectedFilter;
+                    }
                     refreshRows();
                 }).create();
         dialog.setOnDismissListener(d -> bitmap.recycle());
